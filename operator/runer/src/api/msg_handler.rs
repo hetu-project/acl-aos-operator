@@ -163,6 +163,7 @@ async fn do_opml_job(
     callback: String,
     clock: &HashMap<String, String>,
     vrf_result: VRFReply,
+    worker_url: String,
 ) -> OperatorResult<JobResultRequest> {
     let mut retry_send_count = 0;
     loop {
@@ -172,7 +173,7 @@ async fn do_opml_job(
             ));
         }
 
-        let status = match get_opml_worker_status().await {
+        let status = match get_opml_worker_status(&worker_url).await {
             Ok(v) => v,
             Err(e) => {
                 tracing::error!(
@@ -286,6 +287,7 @@ async fn do_tee_job(
     max_tokens: u64,
     clock: &HashMap<String, String>,
     vrf_result: VRFReply,
+    workder_url: String,
 ) -> OperatorResult<JobResultRequest> {
     let mut retry_send_count = 0;
     loop {
@@ -295,7 +297,7 @@ async fn do_tee_job(
             ));
         }
 
-        let status = match get_tee_worker_status().await {
+        let status = match get_tee_worker_status(&workder_url).await {
             Ok(v) => v,
             Err(e) => {
                 tracing::error!(
@@ -643,9 +645,10 @@ async fn do_job(
                     user,
                     job_id,
                     params.tag.clone(),
-                    config.net.callback_url.clone(),
+                    config.net.callback_url.clone() + "/api/opml_callback",
                     &params.clock,
                     vrf_result,
+                    config.net.worker_url.clone(),
                 )
                 .await?
             }
@@ -662,6 +665,7 @@ async fn do_job(
                     params.job.params.max_tokens.unwrap(),
                     &params.clock,
                     vrf_result,
+                    config.net.worker_url.clone(),
                 )
                 .await?
             }
@@ -673,7 +677,7 @@ async fn do_job(
                     user,
                     job_id,
                     params.tag.clone(),
-                    config.net.callback_url.clone(),
+                    config.net.callback_url.clone() + "/api/zkml_callback",
                     &params.clock,
                     vrf_result,
                 )
@@ -868,7 +872,7 @@ pub async fn handle_connection(op: OperatorArc) -> OperatorResult<()> {
             }
         };
         let signer = MessageVerify(secret_key);
-        let socket = match SocketAddr::from_str(&config.net.dispatcher_url) {
+        let socket = match SocketAddr::from_str(&config.dispatcher.dispatcher_url) {
             Ok(v) => v,
             Err(e) => {
                 tracing::error!("Websocket address parse error: {:?}", e);
@@ -976,10 +980,10 @@ pub async fn handle_connection(op: OperatorArc) -> OperatorResult<()> {
     Ok(())
 }
 
-async fn get_opml_worker_status() -> OperatorResult<String> {
+async fn get_opml_worker_status(woker_url: &str) -> OperatorResult<String> {
     tracing::info!("Sending opml status request");
     let client = reqwest::Client::new();
-    let opml_server_url = format!("{}/api/v1/status", "http://127.0.0.1:1234");
+    let opml_server_url = format!("{}/api/v1/status", woker_url);
     tracing::info!("{:?}", opml_server_url);
 
     let response = client.get(opml_server_url).send().await?;
@@ -1001,10 +1005,10 @@ async fn get_opml_worker_status() -> OperatorResult<String> {
     }
 }
 
-async fn get_tee_worker_status() -> OperatorResult<u32> {
+async fn get_tee_worker_status(worker_url: &str) -> OperatorResult<u32> {
     tracing::info!("Sending tee status request");
     let client = reqwest::Client::new();
-    let tee_server_url = format!("{}/api/v1/status", "http://127.0.0.1:3000");
+    let tee_server_url = format!("{}/api/v1/status", worker_url);
     tracing::info!("{:?}", tee_server_url);
 
     let response = client.get(tee_server_url).send().await?;

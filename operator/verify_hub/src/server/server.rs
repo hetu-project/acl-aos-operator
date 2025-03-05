@@ -33,20 +33,23 @@ pub struct Server {
     pub tee_channels: HashMap<String, mpsc::Sender<AnswerReq>>,
     pub opml_channels: HashMap<String, mpsc::Sender<OpmlAnswer>>,
     pub zkml_channels: HashMap<String, mpsc::Sender<ZkmlAnswer>>,
+    pub node_type: String,
+    pub worker_url: String,
+    pub callback_url: String,
 }
 
 #[derive(Debug, Clone)]
 pub struct SharedState(pub(crate) Arc<RwLock<Server>>);
 
 impl SharedState {
-    pub async fn new(config: Config) -> Self {
-        let server = Server::new(config).await;
+    pub async fn new(node_type: &str, worker_url: &str, callback_url: &str) -> Self {
+        let server = Server::new(node_type, worker_url, callback_url).await;
         SharedState(Arc::new(RwLock::new(server)))
     }
 }
 
 impl Server {
-    pub async fn new(config: Config) -> Self {
+    pub async fn new(node_type: &str, worker_url: &str, callback_url: &str) -> Self {
         let mut csprng = OsRng;
         let sign_key = SigningKey::generate(&mut csprng);
         dotenv().ok();
@@ -62,6 +65,9 @@ impl Server {
             tee_channels: Default::default(),
             opml_channels: Default::default(),
             zkml_channels: Default::default(),
+            node_type: node_type.to_string(),
+            worker_url: worker_url.to_string(),
+            callback_url: callback_url.to_string(),
         }
     }
 
@@ -95,7 +101,7 @@ impl Server {
         req: OperatorReq,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let client = reqwest::Client::new();
-        let tee_server_url = format!("{}/api/v1/question", "http://127.0.0.1:3000");
+        let tee_server_url = format!("{}/api/v1/question", self.worker_url);
         let response = client.post(tee_server_url).json(&req).send().await?;
         if response.status().is_success() {
             Ok(())
@@ -110,7 +116,7 @@ impl Server {
     ) -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!("Sending opml request {:?}", req);
         let client = reqwest::Client::new();
-        let opml_server_url = format!("{}/api/v1/question", "http://127.0.0.1:1234");
+        let opml_server_url = format!("{}/api/v1/question", self.worker_url);
         tracing::info!("{:?}", opml_server_url);
 
         let response = client.post(opml_server_url).json(&req).send().await?;
@@ -129,7 +135,7 @@ impl Server {
     ) -> Result<ZkmlAnswer, Box<dyn std::error::Error>> {
         tracing::info!("Sending zkml request {:?}", req);
         let client = reqwest::Client::new();
-        let zkml_server_url = format!("{}/api/v1/verify", "http://127.0.0.1:3721");
+        let zkml_server_url = format!("{}/api/v1/verify", self.worker_url);
         tracing::info!("{:?}", zkml_server_url);
 
         let response = client.post(zkml_server_url).json(&req).send().await?;
@@ -149,7 +155,7 @@ impl Server {
     ) -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!("Sending zkml request {:?}", req);
         let client = reqwest::Client::new();
-        let zkml_server_url = format!("{}/api/v1/verify", "http://127.0.0.1:3721");
+        let zkml_server_url = format!("{}/api/v1/verify", self.worker_url);
         tracing::info!("{:?}", zkml_server_url);
 
         let response = client.post(zkml_server_url).json(&req).send().await?;
@@ -163,14 +169,20 @@ impl Server {
     }
 }
 
-pub async fn run(url: &str, tx: tokio::sync::oneshot::Sender<SharedState>) {
+pub async fn run(
+    node_id: &str,
+    url: &str,
+    node_type: &str,
+    worker_url: &str,
+    callback_url: &str,
+    tx: tokio::sync::oneshot::Sender<SharedState>
+    ) {
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods([Method::GET, Method::POST])
         .allow_headers(Any);
 
-    let config = Config::new();
-    let server = SharedState::new(config).await;
+    let server = SharedState::new(node_type, worker_url, callback_url).await;
     let server_clone = server.clone();
 
     // build our application with a single route
@@ -197,7 +209,6 @@ pub async fn run(url: &str, tx: tokio::sync::oneshot::Sender<SharedState>) {
         .with_state(server);
 
     tx.send(server_clone).unwrap();
-    //let listener = tokio::net::TcpListener::bind("0.0.0.0:21001").await.unwrap();
     let listener = tokio::net::TcpListener::bind(url).await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }

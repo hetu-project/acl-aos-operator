@@ -1,0 +1,57 @@
+version: '3'
+services:
+  db:
+    image: postgres:latest
+    container_name: pg_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: hetu
+      POSTGRES_DB: operator_db
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 50
+    restart: always
+    ports:
+      - "5432:5432"
+    networks:
+      - app-network
+
+  redis:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+    networks:
+      - app-network
+
+  aos_operator:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "21001:21001"
+    command: /app/operator-runner -c /app/config-operator.yaml
+    volumes:
+      - ./config-operator.yaml:/app/config-operator.yaml
+    restart: always
+    networks:
+      - app-network
+
+volumes:
+  db_data:
+
+networks:
+  app-network:
+    driver: bridge

@@ -84,7 +84,7 @@ impl WireMessage {
             method: Some(f),
             params: Some(s),
             result: None,
-            address: "0x02a5592a6dE1568F6eFdC536DA3EF887f98414cb".to_owned(),
+            address: signer.get_address(),
             hash: "".to_owned(),
             signature: "".to_owned(),
         };
@@ -106,7 +106,7 @@ impl WireMessage {
             method: None,
             params: None,
             result: Some(s),
-            address: "0x02a5592a6dE1568F6eFdC536DA3EF887f98414cb".to_owned(),
+            address: signer.get_address(),
             hash: "".to_owned(),
             signature: "".to_owned(),
         };
@@ -352,7 +352,6 @@ impl WebsocketReceiver {
                             recvd_clone.hash = String::new();
                             recvd_clone.signature = String::new();
                             let is_valid = signer.verify_signature(
-                                //&"0x1DdBd306eFFbb5FF29E41398A6a1198Ee6Fb51ce".to_owned(),
                                 &(recvd_clone.address.clone()),
                                 &recvd_clone,
                                 recvd.signature.as_str(),

@@ -18,6 +18,7 @@ pub struct Operator {
     pub sender: Option<WebsocketSender>,
     pub receiver: Option<WebsocketReceiver>,
     pub hub_state: Option<SharedState>,
+    pub node_id: String,
 }
 
 pub type OperatorArc = Arc<Mutex<Operator>>;

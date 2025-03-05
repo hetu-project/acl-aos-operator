@@ -15,6 +15,7 @@ pub struct OperatorConfig {
     pub node: NodeConfig,
     pub chain: ChainConfig,
     pub api: ApiConfig,
+    pub dispatcher: DispatcherConfig,
 }
 
 #[derive(Clone, Deserialize, Serialize, Debug, Default)]
@@ -37,11 +38,8 @@ pub struct QConfig {
 #[derive(Clone, Deserialize, Serialize, Debug, Default)]
 pub struct NetworkConfig {
     pub rest_url: String,
-    pub outer_url: String,
-    pub dispatcher_url: String,
     pub callback_url: String,
-    pub tee_llm_cid: u32,
-    pub tee_llm_port: u32,
+    pub worker_url: String,
 }
 
 #[derive(Clone, Deserialize, Serialize, Debug, Default)]
@@ -49,13 +47,9 @@ pub struct NodeConfig {
     pub node_id: String,
     pub signer_key: String,
     pub vrf_key: String,
-    pub dispatcher_address: String,
     pub node_type: String,
     pub cache_msg_maximum: u64,
     pub heartbeat_interval: u64,
-
-    #[serde(default)]
-    pub ai_models: Vec<String>,
 }
 
 #[derive(Clone, Deserialize, Serialize, Debug, Default)]
@@ -63,6 +57,12 @@ pub struct ChainConfig {
     pub chain_rpc_url: String,
     pub vrf_range_contract: String,
     pub vrf_sort_precision: u16,
+}
+
+#[derive(Clone, Deserialize, Serialize, Debug, Default)]
+pub struct DispatcherConfig {
+    pub dispatcher_url: String,
+    pub dispatcher_address: String,
 }
 
 #[derive(Clone, Deserialize, Serialize, Debug, Default)]
@@ -95,10 +95,6 @@ impl OperatorConfig {
     }
 
     pub fn validate_config(config: &OperatorConfig) -> OperatorConfigResult<OperatorConfig> {
-        if !validate_addr(&config.node.node_id.clone()) {
-            return Err(OperatorConfigError::IllegalNodeId);
-        }
-
         if !validate_key(&config.node.signer_key.clone()) {
             return Err(OperatorConfigError::IllegalSignerKey);
         }
