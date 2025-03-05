@@ -5,6 +5,8 @@ use crate::error::{
     },
     OperatorResult,
 };
+use alloy::{primitives::Address, signers::local::PrivateKeySigner};
+use signer::msg_signer::MessageVerify;
 use crate::operator::{Operator, OperatorArc, ServerState};
 use crate::storage;
 use alloy_primitives::{hex::FromHex, B256};
@@ -38,12 +40,16 @@ impl OperatorFactory {
         .map_err(OPNewVrfRangeContractError)?;
 
         let vrf_key =
-            VRFPrivateKey::try_from(config.node.vrf_key.as_str()).map_err(OPVrfMaterialError)?;
+            VRFPrivateKey::try_from(config.node.signer_key.as_str()).map_err(OPVrfMaterialError)?;
 
-        let node_id = config.node.node_id.clone();
+        //let node_id = config.node.node_id.clone();
+        let key_bytes = <[u8; 32]>::from_hex(&config.node.signer_key).unwrap();
+        let secret_key = PrivateKeySigner::from_slice(&key_bytes).unwrap();
+        let signer = MessageVerify(secret_key);
+        
         let signer_key =
             B256::from_hex(config.node.signer_key.clone()).map_err(OPDecodeSignerKeyError)?;
-        let server_state = ServerState::new(signer_key, node_id, config.node.cache_msg_maximum);
+        let server_state = ServerState::new(signer_key, signer.get_address(), config.node.cache_msg_maximum);
         let state = RwLock::new(server_state);
 
         let cfg = Arc::new(config);
@@ -58,6 +64,7 @@ impl OperatorFactory {
             sender: None,
             receiver: None,
             hub_state: None,
+            node_id: signer.get_address(),
         };
 
         Ok(Arc::new(Mutex::new(operator)))
@@ -68,9 +75,10 @@ impl OperatorFactory {
 
         let (tx, rx) = oneshot::channel();
 
+        let node_id = arc_operator.lock().await.node_id.clone();
         let config = self.config.clone();
         tokio::task::spawn(async move {
-            server::run(&config.net.rest_url, tx).await;
+            server::run(&node_id, &config.net.rest_url, &config.node.node_type, &config.net.worker_url, &config.net.callback_url, tx).await;
         });
 
         let server = rx.await.map_err(OPChannelError)?;

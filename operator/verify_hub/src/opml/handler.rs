@@ -12,7 +12,7 @@ pub async fn opml_question_handler(
     let req_id = opml_request.req_id.clone();
 
     {
-        let mut tserver = server.0.write().await;
+        let tserver = server.0.write().await;
         // Send the request to the OPML server
         if let Err(e) = tserver.send_opml_request(opml_request).await {
             tracing::error!("Failed to send OPML request: {:?}", e);
@@ -57,7 +57,7 @@ pub async fn opml_callback(
 ) -> Json<OpmlAnswerResponse> {
     tracing::info!("Handling OPML answer: {:?}", req);
 
-    let mut tserver = server.0.write().await;
+    let tserver = server.0.write().await;
 
     tracing::info!(
         "id:{:?}, tx:{:?}",
