@@ -75,7 +75,7 @@ impl WireMessage {
     }
 
     /// Create a new request message with serde_json message (with new unique msg id).
-    fn request(f: String, s: Value, signer: MessageVerify) -> WsResult<(Message, String)> {
+    async fn request(f: String, s: Value, signer: MessageVerify) -> WsResult<(Message, String)> {
         static ID: AtomicU64 = AtomicU64::new(1);
         let id = ID.fetch_add(1, Ordering::Relaxed);
 
@@ -90,7 +90,9 @@ impl WireMessage {
         };
 
         let hash = MessageVerify::generate_hash_str(&s1).unwrap();
-        let sig = signer.sign_message(&signer.0, &s1);
+        //let sig = signer.sign_message(&signer.0, &s1);
+        //let sig = futures::executor::block_on(signer.sign_message_remote(&s1));
+        let sig = signer.sign_message_remote(&s1).await;
         s1.hash = hash;
         s1.signature = sig;
 
@@ -100,7 +102,8 @@ impl WireMessage {
     }
 
     /// Create a new response message.
-    fn response(id: String, s: Value, signer: MessageVerify) -> WsResult<Message> {
+    //fn response(id: String, s: Value, signer: MessageVerify) -> WsResult<Message> {
+    async fn response(id: String, s: Value, signer: MessageVerify) -> WsResult<Message> {
         let mut s1 = Self {
             id,
             method: None,
@@ -112,7 +115,10 @@ impl WireMessage {
         };
 
         let hash = MessageVerify::generate_hash_str(&s1).unwrap();
-        let sig = signer.sign_message(&signer.0, &s1);
+        //let sig = signer.sign_message(&signer.0, &s1);
+        //let sig = futures::executor::block_on(signer.sign_message_remote(&s1));
+        let sig = signer.sign_message_remote(&s1).await;
+        info!("-----------response sig: {:?}", sig);
         s1.hash = hash;
         s1.signature = sig;
 
@@ -142,7 +148,7 @@ impl WebsocketRespond {
         self.core
             .exec(move |core_sync, core| async move {
                 tokio::time::timeout(core.timeout, async {
-                    let s = WireMessage::response(self.id, s, core_sync.signer().unwrap())?;
+                    let s = WireMessage::response(self.id, s, core_sync.signer().unwrap()).await?;
                     core.send.lock().await.send(s).await?;
                     Ok(())
                 })
@@ -222,7 +228,7 @@ impl WebsocketSender {
         let timeout_at = tokio::time::Instant::now() + timeout;
         use futures::sink::SinkExt;
 
-        let (s, id) = WireMessage::request(f, s, self.signer()?)?;
+        let (s, id) = WireMessage::request(f, s, self.signer()?).await?;
 
         /// Drop helper to remove our response callback if we timeout.
         struct D(CallbackMap, String);

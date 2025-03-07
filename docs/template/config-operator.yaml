@@ -1,33 +1,30 @@
 db:
-  pg_db_url: "postgres://postgres:hetu@db:5432"
+  pg_db_url: "postgres://zhangwei:123456@0.0.0.0:5432"
   pg_db_name: "operator_db"
   max_connect_pool: 30
   min_connect_pool: 10
   connect_timeout: 30
   acquire_timeout: 60
 queue:
-  queue_url: "redis://:@redis:6379"
+  queue_url: "redis://:@127.0.0.1:6379"
   topic: "task"
 net:
   rest_url: "0.0.0.0:21001"
-  outer_url: "http://127.0.0.1:8080"
-  dispatcher_url: "127.0.0.1:8081"
-  callback_url: "http://127.0.0.1:21001/api/opml_callback"
-  tee_llm_cid: 15
-  tee_llm_port: 5005
+  callback_url: "http://127.0.0.1:21001"
+  worker_url: "127.0.0.1:8081"
 node:
-  node_id: "0x02a5592a6de1568f6efdc536da3ef887f98414cb"
-  signer_key: "77f4b2fbf3f32687f03d84d323bd5cb443f53b0fc338b51c24e319a520c87217"
-  vrf_key: "77f4b2fbf3f32687f03d84d323bd5cb443f53b0fc338b51c24e319a520c87217"
-  dispatcher_address: "0x1DdBd306eFFbb5FF29E41398A6a1198Ee6Fb51ce"
   node_type: "opml"
+  node_id: "0xFE3B557E8Fb62b89F4916B721be55cEb828dBd73"
+  signer_key: "http://213.136.84.124:9000"
+  vrf_key: "77f4b2fbf3f32687f03d84d323bd5cb443f53b0fc338b51c24e319a520c87217"
   cache_msg_maximum: 500
   heartbeat_interval: 10
-  ai_models:
-    - "llama-2-7b-chat.Q4_0.gguf"
 chain:
   chain_rpc_url: "https://ethereum-holesky-rpc.publicnode.com"
-  vrf_range_contract: "0x27e4384ecc11810c2F49914390052b22c4e3CcC0"
+  vrf_range_contract: "0x0C6425A2C1548a69729a491533FF882bd8de5752"
   vrf_sort_precision: 6
 api:
   read_maximum: 20
+dispatcher:
+  dispatcher_url: "127.0.0.1:8081"
+  dispatcher_address: "0x95E5AF9405Ed18094baEb3911a5fD90Ea2be032C"

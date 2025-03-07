@@ -20,3 +20,4 @@ Cargo.lock
 llama-2-7b-chat*
 temp*
 *.csv
+/logs

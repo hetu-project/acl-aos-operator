@@ -73,7 +73,7 @@ async fn test() {
         )
         .expect("signer err");
 
-        let signer = MessageVerify(secret_key);
+        let signer = MessageVerify(secret_key, "0x02a5592a6de1568f6efdc536da3ef887f98414cb".to_string(), "".to_string());
         let (send, mut recv) = s.accept(signer).await.unwrap();
 
         let r_task = tokio::task::spawn(async move {
@@ -100,10 +100,10 @@ async fn test() {
                                 + i.to_string().as_str(),
                             tag: "zkml".to_owned(),
                             params: JobParams {
-                                temperature: 1.0,
-                                top_p: 5.0,
-                                max_tokens: 100,
-                                proof_path: "https://raw.githubusercontent.com/d5c5ceb0/t/main/proof.json".to_string()
+                                temperature: Some(1.0),
+                                top_p: Some(5.0),
+                                max_tokens: Some(100),
+                                proof_path: Some("https://raw.githubusercontent.com/d5c5ceb0/t/main/proof.json".to_string())
                             },
                         },
                     }]))

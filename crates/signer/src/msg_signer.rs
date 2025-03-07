@@ -8,12 +8,19 @@ use serde_json::Value;
 use sha3::{Digest, Keccak256};
 use std::str::FromStr;
 use thiserror::Error;
+use reqwest;
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static COUNTER: AtomicU64 = AtomicU64::new(1);
+
+#[async_trait::async_trait]
 pub trait Signer {
     type PrivKey;
     type PubKey;
 
     fn sign_message<T: Serialize>(&self, privkey: &Self::PrivKey, message: &T) -> String;
+    async fn sign_message_remote<T: Serialize + Sync>(&self, message: &T) -> String;
     fn verify_signature<T: Serialize>(
         &self,
         pubkey: &Self::PubKey,
@@ -48,6 +55,7 @@ impl Keccak256Secp256k1 {
     }
 }
 
+#[async_trait::async_trait]
 impl Signer for Keccak256Secp256k1 {
     type PrivKey = SecretKey;
     type PubKey = PublicKey;
@@ -57,6 +65,10 @@ impl Signer for Keccak256Secp256k1 {
         let msg = Message::from_slice(&hash).expect("hash need 32 bytes");
         let signature = secp.sign_ecdsa(&msg, privkey);
         hex::encode(signature.serialize_compact())
+    }
+
+    async fn sign_message_remote<T: Serialize + Sync>(&self, _message: &T) -> String {
+        "".to_string()
     }
 
     fn verify_signature<T: Serialize>(
@@ -75,7 +87,7 @@ impl Signer for Keccak256Secp256k1 {
 }
 
 #[derive(Clone, Debug)]
-pub struct MessageVerify(pub PrivateKeySigner);
+pub struct MessageVerify(pub PrivateKeySigner, pub String, pub String);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WsMethodMsg {
@@ -98,7 +110,7 @@ impl MessageVerify {
     }
 
     pub fn get_address(&self) -> String {
-        self.0.address().to_string()
+        self.1.clone()
     }
     pub fn verify_message(message: &WsMethodMsg) -> bool {
         let sig = message.signature.as_str();
@@ -117,6 +129,15 @@ impl MessageVerify {
     }
 }
 
+//{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":\"0x2ba756ccee00fb7845bb0e83067f62d45dd47cbc8e68107f16a13dfc6219ecb068e4f166b1d159ffe40ee3706519599f472d2669b0bd06dfbf5213bd16576c111b\"}
+#[derive(Serialize, Deserialize, Debug)]
+pub struct WsResponse {
+    pub jsonrpc: String,
+    pub id: u64,
+    pub result: String,
+}
+
+#[async_trait::async_trait]
 impl Signer for MessageVerify {
     type PrivKey = PrivateKeySigner;
     type PubKey = String; //address
@@ -124,6 +145,26 @@ impl Signer for MessageVerify {
         let msg = serde_json::to_vec(message).unwrap();
         let signature = self.0.sign_message_sync(&msg).unwrap();
         hex::encode(signature.as_bytes())
+    }
+
+    async fn sign_message_remote<T: Serialize + Sync>(&self, message: &T) -> String {
+        let id = COUNTER.fetch_add(1, Ordering::SeqCst);
+        let msg = serde_json::to_string(message).unwrap();
+
+        let data = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "eth_sign",
+            "params": [self.1, msg],
+            "id": id,
+        });
+        let signaure = reqwest::Client::new()
+            .post(self.2.as_str())
+            .json(&data)
+            .send()
+            .await
+            .unwrap();
+
+    ;   signaure.json::<WsResponse>().await.unwrap().result
     }
 
     fn verify_signature<T: Serialize>(
