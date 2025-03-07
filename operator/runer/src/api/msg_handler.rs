@@ -852,7 +852,7 @@ pub async fn handle_connection(op: OperatorArc) -> OperatorResult<()> {
         id += 1;
         let task_span = tracing::span!(tracing::Level::INFO, "task", task_id = id);
         let _enter = task_span.enter();
-        let key_bytes = match <[u8; 32]>::from_hex(&config.node.signer_key) {
+        let key_bytes = match <[u8; 32]>::from_hex(&config.node.vrf_key) {
             Ok(v) => v,
             Err(e) => {
                 tracing::error!("key_bytes from hex error: {:?}", e);
@@ -871,7 +871,7 @@ pub async fn handle_connection(op: OperatorArc) -> OperatorResult<()> {
                 ));
             }
         };
-        let signer = MessageVerify(secret_key);
+        let signer = MessageVerify(secret_key, config.node.node_id.clone(), config.node.signer_key.clone());
         let socket = match SocketAddr::from_str(&config.dispatcher.dispatcher_url) {
             Ok(v) => v,
             Err(e) => {

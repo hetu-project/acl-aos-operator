@@ -95,9 +95,6 @@ impl OperatorConfig {
     }
 
     pub fn validate_config(config: &OperatorConfig) -> OperatorConfigResult<OperatorConfig> {
-        if !validate_key(&config.node.signer_key.clone()) {
-            return Err(OperatorConfigError::IllegalSignerKey);
-        }
 
         Ok(config.clone())
     }

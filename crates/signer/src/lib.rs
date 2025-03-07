@@ -160,9 +160,9 @@ mod tests {
                 }),
                 "job_id": "4a16467fc69713bd4ed0b45a4ddab8ed2b69ae14e48236973a75e941f20971fd".to_owned(),
                 "job": serde_json::json!({
+                    "tag": "tee".to_owned(),
                     "prompt": "What is AI?".to_owned(),
                     "model": "ss".to_owned(),
-                    "tag": "tee".to_owned(),
                     "params": serde_json::json!({
                         "temperature": 1.0,
                         "top_p": 0.5,
@@ -189,5 +189,59 @@ mod tests {
 
         let de_is_verify = MessageVerify::verify_message(&receive_msg);
         dbg!(de_is_verify);
+    }
+
+    #[test]
+    fn test_message_verify_signer() {
+        // Create a test message
+        let message = b"test message";
+        
+        // Create a MessageVerify instance
+        let signer = PrivateKeySigner::from_slice(
+            &<[u8; 32]>::from_hex(
+                "8f2a55949038a9610f50fb23b5883af3b4ecb3c3bb792cbcefbd1542c692be63",
+            )
+            .unwrap_or_default(),
+        ).expect("signer err");
+        let verifier = MessageVerify(signer, "0xFE3B557E8Fb62b89F4916B721be55cEb828dBd73".to_string(), "http://213.136.84.124:9000".to_string());
+        
+        // Test signing functionality
+        let sig = verifier.sign_message(&verifier.0, &message);
+        dbg!(sig.clone());
+        
+        // Test verification
+        assert!(verifier.verify_signature(&verifier.1, message, &sig));
+        
+        //// Test with invalid message
+        let wrong_message = b"wrong message";
+        assert!(!verifier.verify_signature(&verifier.1,wrong_message, &sig));
+    }
+
+    #[tokio::test]
+    async fn test_message_verify_signer2() {
+        // Create a test message
+        let message = b"test message";
+        
+        // Create a MessageVerify instance
+        let signer = PrivateKeySigner::from_slice(
+            &<[u8; 32]>::from_hex(
+                "8f2a55949038a9610f50fb23b5883af3b4ecb3c3bb792cbcefbd1542c692be63",
+            )
+            .unwrap_or_default(),
+        ).expect("signer err");
+        let verifier = MessageVerify(signer, "0xFE3B557E8Fb62b89F4916B721be55cEb828dBd73".to_string(), "http://213.136.84.124:9000".to_string());
+        
+        // Test signing functionality
+        let sig = verifier.sign_message_remote(&message).await;
+        dbg!(sig.clone());
+        
+        // Test verification
+        assert!(verifier.verify_signature(&verifier.1, message, &sig));
+        
+        //// Test with invalid message
+        let wrong_message = b"wrong message";
+        assert!(!verifier.verify_signature(&verifier.1,wrong_message, &sig));
+
+        assert!(verifier.get_address() == "0xFE3B557E8Fb62b89F4916B721be55cEb828dBd73".to_string());
     }
 }
