@@ -33,7 +33,7 @@ use verify_hub::{
     },
 };
 use websocket::{connect, ReceiveMessage, WebsocketConfig, WebsocketSender, WebsocketReceiver};
-
+use metrics::{counter, gauge};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static ID: AtomicUsize = AtomicUsize::new(0);
@@ -739,6 +739,11 @@ async fn handle_dispatchjobs(
 
     let queue_topic = &config.queue.topic.as_str();
     loop {
+        let task_count = queue.size("task").await.unwrap_or(0);
+        counter!("jobs", "queue"=>"total").absolute(task_count as u64);
+        let unfinished_count = queue.size("unfinished").await.unwrap_or(0);
+        counter!("jobs", "queue"=>"unfinished").absolute(unfinished_count as u64);
+        
         match queue.consume(queue_topic).await {
             Ok(msgs) => {
                 for (_k, m) in msgs.iter().enumerate() {
@@ -753,6 +758,7 @@ async fn handle_dispatchjobs(
                                     m.id,
                                     e
                                 );
+                                counter!("jobs", "error_type"=>"parse_message").increment(1);
                             }
                             continue;
                         }
@@ -770,6 +776,7 @@ async fn handle_dispatchjobs(
                                     m.id,
                                     e
                                 );
+                                counter!("jobs", "error_type"=>"parse_job").increment(1);
                             }
                             continue;
                         }
@@ -802,6 +809,7 @@ async fn handle_dispatchjobs(
                         }
 
                         add_queue_req(&queue, "unfinished", id, msg).await;
+                        counter!("jobs", "error_type"=>"do_job").increment(1);
                     }
 
                     // ack
@@ -880,7 +888,7 @@ pub async fn handle_connection(op: OperatorArc) -> OperatorResult<()> {
         }
     };
 
-    tokio::task::spawn(async move {
+    let handle = tokio::task::spawn(async move {
         let mut retry_count = 0;
 
         loop {
@@ -889,10 +897,26 @@ pub async fn handle_connection(op: OperatorArc) -> OperatorResult<()> {
                 Err(_) => retry_count + 1
             };
 
+            break;
+
             let delay = std::cmp::min((2_u64).pow(retry_count), 60);
             tracing::info!("Retrying to connect {} in {} seconds", config.dispatcher.dispatcher_url, delay);
 
             tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
+        }
+    });
+
+    tokio::task::spawn(async move {
+        loop {
+            if handle.is_finished() {
+                tracing::info!("Websocket client is not running");
+                gauge!("node_status", "websocket client" => "running").set(0.0);
+                break;
+            } else {
+                tracing::info!("Websocket client is running");
+                gauge!("node_status", "websocket client" => "running").set(1.0);
+            }
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
         }
     });
 
@@ -931,6 +955,7 @@ async fn ws_handler(
     //let _enter = task_span.enter();
 
     let mut r_task = tokio::task::spawn(async move {
+        gauge!("node_status", "websocket receiver" => "running").set(1.0);
         match receive_message_handler(receiver, queue.clone(), &topic).await {
             Ok(_) => {
                 tracing::info!("Receive message task completed successfully");
@@ -942,6 +967,7 @@ async fn ws_handler(
     }.instrument(task_span.clone()));
 
     let mut s_task = tokio::task::spawn(async move {
+        gauge!("node_status", "websocket sender" => "running").set(1.0);
         match sender_message_handler(operator_clone, sender_clone, queue_cl).await {
             Ok(_) => {
                 tracing::info!("Sender message task completed successfully");
@@ -957,6 +983,8 @@ async fn ws_handler(
         tracing::error!("connect server got error: {:?}", e);
         s_task.abort();
         r_task.abort();
+        gauge!("node_status", "websocket sender" => "running").set(0.0);
+        gauge!("node_status", "websocket receiver" => "running").set(0.0);
         return;
     }
 
@@ -964,22 +992,30 @@ async fn ws_handler(
         result = &mut s_task =>match result {
             Ok(val) => {
                 tracing::info!("Task 1 completed successfully with result: {:?}", val);
+                gauge!("node_status", "websocket sender" => "running").set(0.0);
                 r_task.abort();
+                gauge!("node_status", "websocket receiver" => "running").set(0.0);
             },
             Err(e) => {
                 tracing::info!("task 1 error {:?}", e);
+                gauge!("node_status", "websocket sender" => "running").set(0.0);
                 r_task.abort();
+                gauge!("node_status", "websocket receiver" => "running").set(0.0);
             }
         },
 
         result = &mut r_task =>match result {
             Ok(val) => {
                 tracing::info!("Task 2 completed successfully with result: {:?}", val);
+                gauge!("node_status", "websocket receiver" => "running").set(0.0);
                 s_task.abort();
+                gauge!("node_status", "websocket sender" => "running").set(0.0);
             },
             Err(e) => {
                 tracing::info!("task 2 error {:?}", e);
+                gauge!("node_status", "websocket receiver" => "running").set(0.0);
                 s_task.abort();
+                gauge!("node_status", "websocket sender" => "running").set(0.0);
             }
         },
     }

@@ -21,6 +21,8 @@ pub trait MessageQueue {
 
     // Async function to acknowledge (delete) a processed message.
     async fn acknowledge(&self, topic: &str, message_id: &str) -> Result<(), Self::Error>;
+
+    async fn size(&self, topic: &str) -> Result<usize, Self::Error>;
 }
 
 // Define a custom error type `RedisQueueError` that implements the `Error` trait.
@@ -128,5 +130,11 @@ impl MessageQueue for RedisStreamPool {
         conn.xdel(topic, &[message_id]).await?;
 
         Ok(())
+    }
+
+    async fn size(&self, topic: &str) -> Result<usize, Self::Error> {
+        let mut conn = self.pool.lock().await;
+        let size: usize = conn.xlen(topic).await?;
+        Ok(size)
     }
 }

@@ -12,6 +12,7 @@ net:
   rest_url: "0.0.0.0:21001"
   callback_url: "http://127.0.0.1:21001"
   worker_url: "127.0.0.1:8081"
+  metrics_url: "0.0.0.0:9000"
 node:
   node_type: "opml"
   node_id: "0x02a5592a6de1568f6efdc536da3ef887f98414cb"

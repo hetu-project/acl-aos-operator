@@ -46,6 +46,10 @@ uuid = { version = "1", features = ["v4"] }
 ed25519-dalek = { version = "2.1.1", features = ["serde", "digest", "rand_core", "pem", "pkcs8"] }
 futures = "0.3.30"
 tracing-futures = "0.2.5"
+metrics = "0.24.1"
+metrics-exporter-prometheus = { version = "0.16.2", features = ["http-listener"] }
+metrics-util = "0.19.0"
+sysinfo = "0.33.1"
 
 [lints]
 workspace = true

@@ -13,7 +13,6 @@ use tracing_appender::rolling;
 use std::fs;
 use tracing_subscriber::{fmt, EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
 
-
 fn main() {
     tokio_static::block_forever_on(async_main());
 }
@@ -42,7 +41,7 @@ async fn async_main() {
 
     //tracing::subscriber::set_global_default(subscriber).expect("subscrib failed");
 
-
     info!("start operator server");
     run_cli().await;
 }
+

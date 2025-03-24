@@ -16,6 +16,7 @@ use std::sync::Arc;
 use tokio::sync::{oneshot, Mutex, RwLock};
 use verify_hub::server::server;
 use vrf::ecvrf::VRFPrivateKey;
+use metrics::{counter, gauge};
 
 #[derive(Default)]
 pub struct OperatorFactory {
@@ -73,8 +74,20 @@ impl OperatorFactory {
 
         let node_id = arc_operator.lock().await.node_id.clone();
         let config = self.config.clone();
-        tokio::task::spawn(async move {
+        let handle = tokio::task::spawn(async move {
             server::run(&node_id, &config.net.rest_url, &config.node.node_type, &config.net.worker_url, &config.net.callback_url, tx).await;
+        });
+
+        tokio::task::spawn(async move {
+            loop {
+                if handle.is_finished() {
+                    gauge!("node_status", "http server" => "running").set(0.0);
+                    break;
+                } else {
+                    gauge!("node_status", "http server" => "running").set(1.0);
+                }
+                tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+            }
         });
 
         let server = rx.await.map_err(OPChannelError)?;

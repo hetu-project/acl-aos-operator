@@ -40,6 +40,7 @@ pub struct NetworkConfig {
     pub rest_url: String,
     pub callback_url: String,
     pub worker_url: String,
+    pub metrics_url: String,
 }
 
 #[derive(Clone, Deserialize, Serialize, Debug, Default)]
