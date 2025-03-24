@@ -20,7 +20,7 @@ pub trait Signer {
     type PubKey;
 
     fn sign_message<T: Serialize>(&self, privkey: &Self::PrivKey, message: &T) -> String;
-    async fn sign_message_remote<T: Serialize + Sync>(&self, message: &T) -> String;
+    async fn sign_message_remote<T: Serialize + Sync>(&self, message: &T) -> Result<String, SignerError>;
     fn verify_signature<T: Serialize>(
         &self,
         pubkey: &Self::PubKey,
@@ -33,6 +33,9 @@ pub trait Signer {
 pub enum SignerError {
     #[error("Error: serde_json error: {0}")]
     JsonError(#[from] serde_json::Error),
+
+    #[error("Error: reqwest error: {0}")]
+    ReqwestError(#[from] reqwest::Error),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -67,8 +70,8 @@ impl Signer for Keccak256Secp256k1 {
         hex::encode(signature.serialize_compact())
     }
 
-    async fn sign_message_remote<T: Serialize + Sync>(&self, _message: &T) -> String {
-        "".to_string()
+    async fn sign_message_remote<T: Serialize + Sync>(&self, _message: &T) -> Result<String, SignerError> {
+        Ok("".to_string())
     }
 
     fn verify_signature<T: Serialize>(
@@ -147,7 +150,7 @@ impl Signer for MessageVerify {
         hex::encode(signature.as_bytes())
     }
 
-    async fn sign_message_remote<T: Serialize + Sync>(&self, message: &T) -> String {
+    async fn sign_message_remote<T: Serialize + Sync>(&self, message: &T) -> Result<String, SignerError> {
         let id = COUNTER.fetch_add(1, Ordering::SeqCst);
         let msg = serde_json::to_string(message).unwrap();
 
@@ -161,10 +164,9 @@ impl Signer for MessageVerify {
             .post(self.2.as_str())
             .json(&data)
             .send()
-            .await
-            .unwrap();
+            .await?;
 
-    ;   signaure.json::<WsResponse>().await.unwrap().result
+       Ok(signaure.json::<WsResponse>().await?.result)
     }
 
     fn verify_signature<T: Serialize>(

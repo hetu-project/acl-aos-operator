@@ -14,7 +14,7 @@ net:
   worker_url: "127.0.0.1:8081"
 node:
   node_type: "opml"
-  node_id: "0xFE3B557E8Fb62b89F4916B721be55cEb828dBd73"
+  node_id: "0x02a5592a6de1568f6efdc536da3ef887f98414cb"
   signer_key: "http://213.136.84.124:9000"
   vrf_key: "77f4b2fbf3f32687f03d84d323bd5cb443f53b0fc338b51c24e319a520c87217"
   cache_msg_maximum: 500

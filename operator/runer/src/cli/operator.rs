@@ -69,6 +69,8 @@ pub async fn run_cli() {
 
         let arc_operator_clone = Arc::clone(&_operator);
         handle_connection(arc_operator_clone).await;
+
+        tokio::signal::ctrl_c().await;
     }
 
     if help_info {

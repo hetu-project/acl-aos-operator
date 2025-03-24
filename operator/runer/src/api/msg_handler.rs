@@ -8,7 +8,7 @@ use alloy::{primitives::Address, signers::local::PrivateKeySigner};
 use alloy_wrapper::contracts::vrf_range;
 use ed25519_dalek::{Digest, Sha512};
 use hex::FromHex;
-use node_api::config::NodeConfig;
+use node_api::config::{NodeConfig, OperatorConfig};
 use serde_json::Value;
 use signer::msg_signer::MessageVerify;
 use std::thread;
@@ -32,7 +32,11 @@ use verify_hub::{
         model::{ZkmlAnswer, ZkmlRequest},
     },
 };
-use websocket::{connect, ReceiveMessage, WebsocketConfig, WebsocketSender};
+use websocket::{connect, ReceiveMessage, WebsocketConfig, WebsocketSender, WebsocketReceiver};
+
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+static ID: AtomicUsize = AtomicUsize::new(0);
 
 /// Asynchronously connects to a dispatcher using the given WebSocket sender and node ID.
 ///
@@ -167,7 +171,7 @@ async fn do_opml_job(
 ) -> OperatorResult<JobResultRequest> {
     let mut retry_send_count = 0;
     loop {
-        if retry_send_count >= 600 {
+        if retry_send_count >= 3 {
             return Err(OperatorError::OPTimeoutError(
                 "opml question timeout".into(),
             ));
@@ -177,7 +181,7 @@ async fn do_opml_job(
             Ok(v) => v,
             Err(e) => {
                 tracing::error!(
-                    "get opml worker status error: {:?}, retry count{}",
+                    "get opml worker status error: {:?}, retry count {}",
                     e,
                     retry_send_count
                 );
@@ -756,10 +760,10 @@ async fn handle_dispatchjobs(
 
                     // convert msg into DispatchJobRequest
                     tracing::info!("Consumed message: id={:?}, data={:?}", id, msg);
-                    let job: DispatchJobRequest = match serde_json::from_value(msg) {
+                    let job: DispatchJobRequest = match serde_json::from_value(msg.clone()) {
                         Ok(parsed_job) => parsed_job,
                         Err(e) => {
-                            tracing::error!("Failed to parse job, error: {:?}", e);
+                            tracing::error!("Failed to parse job: {}, error: {:?}", msg, e);
                             if let Err(e) = queue.acknowledge(queue_topic, &m.id).await {
                                 tracing::error!(
                                     "Failed to acknowledge message: {}, error: {:?}",
@@ -796,6 +800,8 @@ async fn handle_dispatchjobs(
                                 tracing::error!("Failed to finish Job: {}, error: {}", m.id, _e)
                             }
                         }
+
+                        add_queue_req(&queue, "unfinished", id, msg).await;
                     }
 
                     // ack
@@ -835,8 +841,6 @@ async fn handle_dispatchjobs(
 /// # Returns
 /// - `OperatorResult<()>`: Returns `Ok(())` if the loop completes successfully, or an error variant if any operation fails.
 pub async fn handle_connection(op: OperatorArc) -> OperatorResult<()> {
-    let mut id: i32 = 0;
-
     let config = op.lock().await.config.clone();
     let queue = match RedisStreamPool::new(&config.queue.queue_url).await {
         Ok(v) => v,
@@ -845,139 +849,184 @@ pub async fn handle_connection(op: OperatorArc) -> OperatorResult<()> {
             return Err(OperatorError::CustomError("redis init error".into()));
         }
     };
-    let mut retry_count = 0;
-    let retry_max = 8;
 
+    let key_bytes = match <[u8; 32]>::from_hex(&config.node.vrf_key) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!("key_bytes from hex error: {:?}", e);
+            return Err(OperatorError::CustomError(format!(
+                "key_bytes from hex error: {:?}",
+                e
+            )));
+        }
+    };
+    let secret_key = match PrivateKeySigner::from_slice(&key_bytes) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!("private key from slice error: {:?}", e);
+            return Err(OperatorError::CustomError(
+                "32 bytes, within curve order".into(),
+            ));
+        }
+    };
+    let signer = MessageVerify(secret_key, config.node.node_id.clone(), config.node.signer_key.clone());
+    let socket = match SocketAddr::from_str(&config.dispatcher.dispatcher_url) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!("Websocket address parse error: {:?}", e);
+            return Err(OperatorError::CustomError(
+                "Websocket address parse error".into(),
+            ));
+        }
+    };
+
+    tokio::task::spawn(async move {
+        let mut retry_count = 0;
+
+        loop {
+            retry_count = match connect_and_run(op.clone(), socket.clone(), queue.clone(), signer.clone(), &config).await {
+                Ok(_) =>  0 ,
+                Err(_) => retry_count + 1
+            };
+
+            let delay = std::cmp::min((2_u64).pow(retry_count), 60);
+            tracing::info!("Retrying to connect {} in {} seconds", config.dispatcher.dispatcher_url, delay);
+
+            tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
+        }
+    });
+
+    Ok(())
+}
+
+async fn connect_and_run(op: OperatorArc, socket: SocketAddr, queue: RedisStreamPool, signer: MessageVerify, config: &OperatorConfig) -> OperatorResult<()> {
+    match connect(Arc::new(WebsocketConfig::default()), socket, signer).await {
+        Ok((sender, receiver)) => {
+            tracing::info!("Connected to the server");
+            ws_handler(op, sender, receiver, config, queue.clone()).await;
+
+            Ok(())
+        },
+        Err(e) => {
+            tracing::error!("Failed to connect to the server: {}", e);
+            Err(OperatorError::CustomError("Failed to connect to the server".into()))
+        }
+    }
+}
+
+async fn ws_handler(
+    op: OperatorArc,
+    sender: WebsocketSender,
+    receiver: WebsocketReceiver,
+    config: &OperatorConfig,
+    queue: RedisStreamPool,
+) {
+    let topic = config.queue.topic.clone();
+    let operator_clone = op.clone();
+    let queue_cl = queue.clone();
+    let sender_clone = sender.clone();
+
+    ID.fetch_add(1, Ordering::Relaxed);
+    let task_span = tracing::span!(tracing::Level::INFO, "task", id = ID.load(Ordering::Relaxed));
+    //let _enter = task_span.enter();
+
+    let mut r_task = tokio::task::spawn(async move {
+        match receive_message_handler(receiver, queue.clone(), &topic).await {
+            Ok(_) => {
+                tracing::info!("Receive message task completed successfully");
+            }
+            Err(e) => {
+                tracing::error!("Receive message task error: {:?}", e);
+            }
+        }
+    }.instrument(task_span.clone()));
+
+    let mut s_task = tokio::task::spawn(async move {
+        match sender_message_handler(operator_clone, sender_clone, queue_cl).await {
+            Ok(_) => {
+                tracing::info!("Sender message task completed successfully");
+            }
+            Err(e) => {
+                tracing::error!("Sender message task error: {:?}", e);
+            }
+        }
+    }.instrument(task_span.clone()));
+
+
+    if let Err(e) = connect_dispatcher(&sender, &config.node).await {
+        tracing::error!("connect server got error: {:?}", e);
+        s_task.abort();
+        r_task.abort();
+        return;
+    }
+
+    tokio::select! {
+        result = &mut s_task =>match result {
+            Ok(val) => {
+                tracing::info!("Task 1 completed successfully with result: {:?}", val);
+                r_task.abort();
+            },
+            Err(e) => {
+                tracing::info!("task 1 error {:?}", e);
+                r_task.abort();
+            }
+        },
+
+        result = &mut r_task =>match result {
+            Ok(val) => {
+                tracing::info!("Task 2 completed successfully with result: {:?}", val);
+                s_task.abort();
+            },
+            Err(e) => {
+                tracing::info!("task 2 error {:?}", e);
+                s_task.abort();
+            }
+        },
+    }
+}
+
+pub async fn sender_message_handler(
+    operator_clone: OperatorArc,
+    sender: WebsocketSender,
+    queue_cl: RedisStreamPool,
+) ->OperatorResult<()> {
+    handle_dispatchjobs(operator_clone, sender, queue_cl).await;
+    Ok(())
+}
+
+pub async fn receive_message_handler(mut receiver: WebsocketReceiver, queue: RedisStreamPool, topic: &str) -> OperatorResult<()> {
     loop {
-        id += 1;
-        let task_span = tracing::span!(tracing::Level::INFO, "task", task_id = id);
-        let _enter = task_span.enter();
-        let key_bytes = match <[u8; 32]>::from_hex(&config.node.vrf_key) {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::error!("key_bytes from hex error: {:?}", e);
-                return Err(OperatorError::CustomError(format!(
-                    "key_bytes from hex error: {:?}",
-                    e
-                )));
+        match receiver.recv().await? {
+            ReceiveMessage::Signal(s) => {
+                tracing::warn!("signal message: {s:?}")
             }
-        };
-        let secret_key = match PrivateKeySigner::from_slice(&key_bytes) {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::error!("private key from slice error: {:?}", e);
-                return Err(OperatorError::CustomError(
-                    "32 bytes, within curve order".into(),
-                ));
-            }
-        };
-        let signer = MessageVerify(secret_key, config.node.node_id.clone(), config.node.signer_key.clone());
-        let socket = match SocketAddr::from_str(&config.dispatcher.dispatcher_url) {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::error!("Websocket address parse error: {:?}", e);
-                return Err(OperatorError::CustomError(
-                    "Websocket address parse error".into(),
-                ));
-            }
-        };
-
-        match connect(Arc::new(WebsocketConfig::default()), socket, signer).await {
-            Ok((sender, mut receiver)) => {
-                retry_count = 0;
-                let queue_clone = queue.clone();
-                let topic = config.queue.topic.clone();
-
-                let mut r_task = tokio::task::spawn(
-                    async move {
-                        loop {
-                            match receiver.recv().await {
-                                Ok(msg) => {
-                                    tracing::info!("<--job request: msg={:?}", msg);
-
-                                    match msg {
-                                        ReceiveMessage::Signal(s) => {
-                                            tracing::warn!("signal message: {s:?}")
-                                        }
-                                        ReceiveMessage::Request(id, m, p, r) => {
-                                            match m.as_str() {
-                                                "dispatch_job" => {
-                                                    sleep(Duration::from_millis(10)).await;
-                                                    add_queue_req(&queue_clone, &topic, id, p)
-                                                        .await;
-                                                }
-                                                method @ &_ => {
-                                                    tracing::warn!(
-                                                        "Unexpected method value: {:?}",
-                                                        method
-                                                    )
-                                                }
-                                            };
-
-                                            let rep = serde_json::json!(WsResponse {
-                                                code: 200,
-                                                message: "success".to_string(),
-                                            });
-
-                                            if let Err(e) = r.respond(rep).await {
-                                                tracing::error!("Failed to send message: {:?}", e);
-                                                return;
-                                            }
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    panic!("websocket error {:?}, need reconnect", e);
-                                }
-                            }
-                        }
+            ReceiveMessage::Request(id, m, p, r) => {
+                //tracing::info!("<--job request: msg={:?}", msg);
+                match m.as_str() {
+                    "dispatch_job" => {
+                        sleep(Duration::from_millis(10)).await;
+                        add_queue_req(&queue, &topic, id, p) .await;
                     }
-                    .instrument(task_span.clone()),
-                );
-
-                if let Err(e) = connect_dispatcher(&sender, &config.node).await {
-                    tracing::error!("connect server got error: {:?}", e);
-                    break;
-                }
-
-                let _operator_clone = op.clone();
-                let queue_cl = queue.clone();
-                let mut s_task = tokio::task::spawn(
-                    async move {
-                        handle_dispatchjobs(_operator_clone, sender, queue_cl).await;
+                    method @ &_ => {
+                        tracing::warn!(
+                            "Unexpected method value: {:?}",
+                            method
+                        )
                     }
-                    .instrument(task_span.clone()),
-                );
+                };
 
-                tokio::select! {
-                        result = &mut s_task =>match result {
-                              Ok(val) => tracing::info!("Task 1 completed successfully with result: {:?}", val),
-                              Err(e) => break,
-                        },
+                let rep = serde_json::json!(WsResponse {
+                    code: 200,
+                    message: "success".to_string(),
+                });
 
-                        result = &mut r_task =>match result {
-                              Ok(val) => tracing::info!("Task 2 completed successfully with result: {:?}", val),
-                              Err(e) => {
-                                  tracing::info!("task 2 error {:?}", e);
-                                  s_task.abort();
-                              }
-                        },
+                if let Err(e) = r.respond(rep).await {
+                    tracing::error!("Failed to send message: {:?}", e);
+                    return Err(OperatorError::CustomError("Failed to send message".into()));
                 }
-            }
-
-            Err(_) => {
-                if retry_count < retry_max {
-                    retry_count += 1;
-                }
-
-                let delay = (2_u64).pow(retry_count);
-                println!("Failed to connect, retrying in {} seconds", delay);
-                tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
             }
         }
     }
-
-    Ok(())
 }
 
 async fn get_opml_worker_status(woker_url: &str) -> OperatorResult<String> {

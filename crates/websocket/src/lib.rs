@@ -48,6 +48,9 @@ pub enum WsError {
 
     #[error("Error: Connection closed")]
     ConnectionClosed,
+
+    #[error("Error: Signer error: {0}")]
+    SignerError(#[from] signer::msg_signer::SignerError),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -90,9 +93,8 @@ impl WireMessage {
         };
 
         let hash = MessageVerify::generate_hash_str(&s1).unwrap();
-        //let sig = signer.sign_message(&signer.0, &s1);
-        //let sig = futures::executor::block_on(signer.sign_message_remote(&s1));
-        let sig = signer.sign_message_remote(&s1).await;
+        let sig = signer.sign_message_remote(&s1).await?;
+        info!("remote signer response sig: {:?}", sig);
         s1.hash = hash;
         s1.signature = sig;
 
@@ -115,10 +117,8 @@ impl WireMessage {
         };
 
         let hash = MessageVerify::generate_hash_str(&s1).unwrap();
-        //let sig = signer.sign_message(&signer.0, &s1);
-        //let sig = futures::executor::block_on(signer.sign_message_remote(&s1));
-        let sig = signer.sign_message_remote(&s1).await;
-        info!("-----------response sig: {:?}", sig);
+        let sig = signer.sign_message_remote(&s1).await?;
+        info!("remote signer response sig: {:?}", sig);
         s1.hash = hash;
         s1.signature = sig;
 
