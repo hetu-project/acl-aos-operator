@@ -27,9 +27,10 @@ struct OperatorCli {
     #[structopt(
         short = "i",
         long = "init_pg",
+        parse(from_os_str),
         help = "Init & refresh pg, caution: new db & new table"
     )]
-    init_pg: Option<String>,
+    init_pg: Option<std::path::PathBuf>,
 
     #[structopt(
         short = "k",
@@ -44,8 +45,10 @@ pub async fn run_cli() {
     let args = OperatorCli::from_args();
 
     // init pg db
-    if let Some(pg_conn_str) = args.init_pg {
+    if let Some(config_path) = args.init_pg {
         help_info = false;
+        let config = construct_node_config(config_path);
+        let pg_conn_str = format!("{}/{}", config.db.pg_db_url, config.db.pg_db_name);
         info!("PostgreSQL connection addr: {}", pg_conn_str);
         // Use the PostgreSQL connection string here for initialization
         if !init_db(pg_conn_str).await {

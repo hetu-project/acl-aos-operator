@@ -897,8 +897,6 @@ pub async fn handle_connection(op: OperatorArc) -> OperatorResult<()> {
                 Err(_) => retry_count + 1
             };
 
-            break;
-
             let delay = std::cmp::min((2_u64).pow(retry_count), 60);
             tracing::info!("Retrying to connect {} in {} seconds", config.dispatcher.dispatcher_url, delay);
 

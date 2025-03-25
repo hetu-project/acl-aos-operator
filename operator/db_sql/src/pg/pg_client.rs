@@ -16,16 +16,16 @@ pub async fn setup_db(request_url: &str, db_name: &str) -> Result<DatabaseConnec
            Database::connect(&url).await?
        }
        DbBackend::Postgres => {
-           db.execute(Statement::from_string(
-               db.get_database_backend(),
-               format!("DROP DATABASE IF EXISTS \"{}\";", db_name),
-           ))
-           .await?;
-           db.execute(Statement::from_string(
-               db.get_database_backend(),
-               format!("CREATE DATABASE \"{}\";", db_name),
-           ))
-           .await?;
+            let check_db_query = format!("SELECT 1 FROM pg_database WHERE datname = '{}'", db_name);
+            let result = db.execute(Statement::from_string(sea_orm::DatabaseBackend::Postgres, check_db_query)).await?;
+
+            if result.rows_affected() == 0 {
+                db.execute(Statement::from_string(
+                    db.get_database_backend(),
+                    format!("CREATE DATABASE \"{}\";", db_name),
+                ))
+                .await?;
+            }
 
            let url = format!("{}/{}", request_url, db_name);
            Database::connect(&url).await?
