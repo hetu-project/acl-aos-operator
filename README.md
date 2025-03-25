@@ -104,7 +104,7 @@ By registering with AOS on Dispatcher, the operator could service the AI inferen
    dispatcher_address: AOS dispatcher ID
    node_id: Operator address
    signer_key: Operator private key
-   vrf_key: Same as signer_key
+   vrf_key: vrf sign key
    chain_rpc_url: Ethereum RPC node
    ```
 
@@ -125,4 +125,30 @@ By registering with AOS on Dispatcher, the operator could service the AI inferen
    ```bash
    ./target/release/operator-runer -c ./docs/template/config-operator.yaml
    ```
+
+## Docker Deployment
+1. **Update the docker-compose.yml:**
+
+   Update the following configuration items based on your environment:
+   ```yaml
+   WORKER_URL: ""         # worker url
+   DISPATCHER_URL: ""     # dispatcher url
+   DISPATCHER_ADDRESS: "" # dispatcher address
+   CHAIN_RPC_URL: ""      # Ethereum RPC node
+   VRF_RANGE_CONTRACT: "" # vrf range contract address
+   NODE_ID: ""            # operator address
+   NODE_TYPE: "opml"      # opml or tee
+   SIGNER_KEY: ""         # operator remote signer server
+   VRF_KEY: ""            # vrf sign key
+   ```
+
+5. **Run the Docker Compose:**
+
+   Use the following command to run the Docker container:
+
+   ```bash
+   docker compose up -d
+   ```
+
+   Replace `/path/to/config-operator.yaml` with the actual path to the configuration file.
 

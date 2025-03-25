@@ -171,7 +171,7 @@ async fn do_opml_job(
 ) -> OperatorResult<JobResultRequest> {
     let mut retry_send_count = 0;
     loop {
-        if retry_send_count >= 3 {
+        if retry_send_count >= 600 {
             return Err(OperatorError::OPTimeoutError(
                 "opml question timeout".into(),
             ));

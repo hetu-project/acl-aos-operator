@@ -1,8 +1,6 @@
-version: '3'
 services:
   db:
     image: postgres:latest
-    container_name: pg_db
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: hetu
@@ -23,7 +21,7 @@ services:
   redis:
     image: redis:latest
     ports:
-      - "6379:6379"
+      - "6369:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -40,11 +38,24 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: hetu
+      POSTGRES_DB: operator_db
+      POSTGRES_PORT: 5432
+      REDIS_URL: "redis://:@redis:6369"
+      WORKER_URL: "http://worker:21001"
+      DISPATCHER_URL: ""
+      DISPATCHER_ADDRESS: ""
+      CHAIN_RPC_URL: "https://ethereum-holesky-rpc.publicnode.com"
+      VRF_RANGE_CONTRACT: "0x27e4384ecc11810c2F49914390052b22c4e3CcC0"
+      NODE_ID: ""
+      NODE_TYPE: "opml"
+      SIGNER_KEY: ""
+      VRF_KEY: ""
     ports:
       - "21001:21001"
-    command: /app/operator-runner -c /app/config-operator.yaml
-    volumes:
-      - ./config-operator.yaml:/app/config-operator.yaml
+      - "9000:9000"
     restart: always
     networks:
       - app-network
